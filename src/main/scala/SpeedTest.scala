@@ -1,14 +1,13 @@
 package com.tcooper8.net.test
 
-import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.{Future, Await, ExecutionContext}
 import ExecutionContext.Implicits.global
 import scala.async.Async.{async, await}
 import scala.concurrent.duration._
 
 
-
 object SpeedTest {
+	case class Data(val success: Int, val fail: Int, val bytes: Long)
 
 	def callHttpGet(hostPath: String) (uri: String): Array[Byte] = {
 		import dispatch._
@@ -31,15 +30,17 @@ object SpeedTest {
 		(tf - ti).toDouble * 0.001
 	}
 
-	def main(argv: Array[String]) {
-		val tasks = 1
-		val itters = 1000
+	def getFutureTest(tasks: Int, itters: Int) = {
 
-		def f() = {
+		val address = "http://localhost:8181/getStaticEngine"
+		//val address = "http://localhost:8087/getTTSFile"
+		val uri = "?voice=Crystal&speak=" + "1 ".replace(" ", "%20") * 1
+
+		/*def f() = {
 			def iter (i: Int) (acc: Tuple2[Int, Int]): Tuple2[Int, Int] =
 				(i < itters, acc) match {
 					case (true, (x,y)) =>
-						val data = callHttpGet("http://localhost:8080")("/getTime")
+						val data = callHttpGet(address)(uri)
 						if (data == null) iter (i+1) (x, y+1)
 						else iter (i+1) (x+1, y)
 					case (false, _) => acc
@@ -50,24 +51,51 @@ object SpeedTest {
 		def op (a: Tuple2[Int, Int]) (b: Tuple2[Int, Int]) =
 			(a, b) match {
 				case ((a,b), (x,y)) => (a+x, b+y)
+			}*/
+		def call (uri: String) = callHttpGet(address)(uri)
+		def f(): Data = {
+			def iter (i: Int) (acc: Data): Data = {
+				(i < itters, acc) match {
+					case (true, Data(s, f, b)) =>
+						val data = call(uri)
+						if (data == null) iter (i+1) (Data(s,f+1,b))
+						else iter (i+1) (Data(s+1, f, b + data.length))
+					case (false, _) => acc
+				}
 			}
+			iter (0) (Data(0, 0, 0))
+		}
+		def op (a: Data) (b: Data): Data = Data(a.success + b.success, a.fail + b.fail, a.bytes + b.bytes)
 		def gen = Future{ f() }
 
 		val ls = List.fill (tasks) (gen)
 		val g = combineList (ls) (op)
-		//al res = Await.result(g, 10 seconds)
+		g
+	}
 
-		def timed() {
-			def work() {
-				val (success, fail) = Await.result(g, 60 seconds)
-				println(s"Success: $success   Fails: $fail")
-			}
-
-			println("Starting timed test")
-			val dt = timeFunc(work)
-			println("Done with timed test")
-			println(s"Time = ${dt}s")
+	def timed(f: Future[Data]) {
+		var bytes: Long = 0
+		def work() {
+			val Data(success, fail, nBytes) = Await.result(f, 360 seconds)
+			println(s"Success: $success   Fails: $fail")
+			bytes = nBytes
 		}
-		timed()
+
+		println("Starting timed test")
+		val dt = timeFunc(work)
+		println(s"Time = ${dt}s")
+		println(s"MB/s = ${bytes / (1 << 20) / dt}")
+		println("Done with timed test")
+	}
+
+	def main(argv: Array[String]) {
+		val tasks = 6
+		val itters = 5000
+		val tests = 5
+
+		for (t <- 1 to tests) {
+			timed(getFutureTest(tasks, itters))
+		}
+		//timed(g)
 	}
 }
