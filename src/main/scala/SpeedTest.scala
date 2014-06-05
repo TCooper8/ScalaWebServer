@@ -9,12 +9,21 @@ import scala.concurrent.duration._
 object SpeedTest {
 	case class Data(val success: Int, val fail: Int, val bytes: Long)
 
+	def maybe[A](expr: => A) = {
+		try Some(expr)
+		catch {
+			case e: Throwable => None
+		}
+	}
+
 	def callHttpGet(hostPath: String) (uri: String): Array[Byte] = {
 		import dispatch._
 
-		val service = url(hostPath + uri)
-		val task = Http(service OK as.Bytes)
-		task()
+		maybe {
+			val service = url(hostPath + uri)
+			val task = Http(service OK as.Bytes)
+			task()
+		} getOrElse(null)
 	}
 
 	def combine[A, B](op: A => B => B)(a: Future[A], b: Future[B]): Future[B] = async { op (await(a)) (await(b)) }
@@ -34,7 +43,7 @@ object SpeedTest {
 
 		val address = "http://localhost:8181/getStaticEngine"
 		//val address = "http://localhost:8087/getTTSFile"
-		val uri = "?voice=Crystal&speak=" + "1 ".replace(" ", "%20") * 1
+		val uri = "?voice=Crystal&speak=" + "1 ".replace(" ", "%20") * 50
 
 		/*def f() = {
 			def iter (i: Int) (acc: Tuple2[Int, Int]): Tuple2[Int, Int] =
@@ -73,7 +82,7 @@ object SpeedTest {
 		g
 	}
 
-	def timed(f: Future[Data]) {
+	def timed(f: Future[Data]) = {
 		var bytes: Long = 0
 		def work() {
 			val Data(success, fail, nBytes) = Await.result(f, 360 seconds)
@@ -86,15 +95,25 @@ object SpeedTest {
 		println(s"Time = ${dt}s")
 		println(s"MB/s = ${bytes / (1 << 20) / dt}")
 		println("Done with timed test")
+		dt
 	}
 
 	def main(argv: Array[String]) {
-		val tasks = 6
-		val itters = 5000
-		val tests = 5
+		val tasks = 4
+		val itters = 10000
+		val tests = 10
 
 		for (t <- 1 to tests) {
-			timed(getFutureTest(tasks, itters))
+			val dt = timed(getFutureTest(tasks, itters))
+			val testedItters = itters * tasks
+			val ittersPerSecond = testedItters / dt
+			val ittersPerDay = (ittersPerSecond * 86400).toLong
+
+			println(s"Threads = $tasks")
+			println(s"Tested itterations = $testedItters")
+			println(s"Itters per second = $ittersPerSecond")
+			println(s"Itters per day = $ittersPerDay")
+			println()
 		}
 		//timed(g)
 	}
